@@ -3,7 +3,19 @@ import pandas as pd
 import numpy as np
 
 def which(program):
-    import os
+    """
+    Method to find the path of an executable.
+
+    Ripped from user Jay at Stack Overflow in thread
+    https://stackoverflow.com/questions/377017/test-if-executable-exists-in-python
+
+    program : string
+        Name of executable to search for in path.
+
+    Returns
+    -------
+    string or None : if path is found, returns string; else, returns None
+    """
     def is_exe(fpath):
         return os.path.isfile(fpath) and os.access(fpath, os.X_OK)
 
@@ -25,10 +37,16 @@ def which(program):
 def align_antechamber(xyz_string, antechamber_output):
     # Initial method written by Daniel Smith; @dgasmith
     # Read in both files
+    # skip first two lines where number of atoms and comment are
     inp = pd.read_csv(xyz_string, skiprows=2, sep=' +', engine='python', header=None)
     inp.columns = ['Atom', 'X', 'Y', 'Z']
 
-    out = pd.read_csv(antechamber_output, sep=' +', engine='python', header=None)
+    # find which lines to skip - only lines with 8 columns are desired
+    ant_o = open(antechamber_output, 'r')
+    ant_data = ant_o.readlines()
+    ant_o.close()
+    bad_rows = [x for x in range(len(ant_data)) if len(ant_data[x].strip().split()) != 8]
+    out = pd.read_csv(antechamber_output, skiprows=bad_rows, sep=' +', engine='python', header=None)
     out.columns = ['#', 'Sym', 'GAFF', '??', 'X', 'Y', 'Z', 'Charge?']
 
     # Parse out dummy atoms
@@ -83,10 +101,10 @@ def align_antechamber(xyz_string, antechamber_output):
     inp['GAFF'] = out['GAFF'].values
 
     #print inp['GAFF']
-    for x in range(len(inp['GAFF'])):
-        print( x , ":", inp['GAFF'][x] )
+    #for x in range(len(inp['GAFF'])):
+    #    print( x , ":", inp['GAFF'][x] )
 
     #inp.to_csv('parsed_output.csv')
     return np.asarray(inp['GAFF'])
 
-align_antechamber('llll.xyz', 'llll.TEMP_ATS')
+#align_antechamber('llll.xyz', 'llll.backup')

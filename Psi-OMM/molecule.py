@@ -3,6 +3,7 @@ from __future__ import print_function
 import os
 import subprocess
 import numpy as np
+import psi4
 from psi4.driver.qcdb import periodictable
 from psi4.driver.qcdb import physconst
 import BFS_bonding
@@ -205,7 +206,7 @@ class Molecule(object):
         psi4.core.set_global_option("BASIS", basis)
 
         E, wfn = psi4.property(qc_method, properties=[charge_method], return_wfn=True)
-        self.charges = np.asarray(wfn_solute.atomic_point_charges())
+        self.charges = np.asarray(wfn.atomic_point_charges())
 
     def generate_atom_types(self, temp_filename, babel_path=None, antechamber_path=None):
         """

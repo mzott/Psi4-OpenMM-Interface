@@ -4,9 +4,9 @@ import sys
 import operator
 import time
 import numpy as np
-sys.path.append("/theoryfs2/ds/zott/Gits/Atom_typing")
-sys.path.insert(1, "/theoryfs2/ds/zott/openmm/wrappers/python")
-sys.path.insert(1, "/theoryfs2/ds/cdsgroup/psi4-compile/hrw-labfork/install-psi4/lib")
+sys.path.append("/home/michael/Gits/Atom_typing")
+#sys.path.insert(1, "/theoryfs2/ds/zott/openmm/wrappers/python")
+#sys.path.insert(1, "/theoryfs2/ds/cdsgroup/psi4-compile/hrw-labfork/install-psi4/lib")
 #sys.path.insert(1, "/theoryfs2/ds/zott/Gits/openmm/wrappers/python")
 import psi4
 from simtk.openmm.app import *
@@ -16,27 +16,6 @@ import simtk.openmm as mm
 import GAFF_Typer as gt
 import scipy.spatial
 
-def calc_mm_E(xyz_arr, z_vals, atom_types, atom_charges):
-    gt_sys = gt.Molecule(z_vals, xyz_arr)
-    topology = gt.psi_omm.make_top(gt_sys.z_vals, gt_sys.bonds, atom_types)
-    forcefield = ForceField('gaff2.xml')
-    omm_sys = forcefield.createSystem(topology, nonbondedMethod=NoCutoff, atomTypes=atom_types, atomCharges=atom_charges)
-
-    integrator = LangevinIntegrator(100*kelvin, 1/picosecond, 0.002*picoseconds)
-    simulation = Simulation(topology, omm_sys, integrator, platform=Platform.getPlatformByName('CUDA'))
-
-    # Create positions as desired by OpenMM; multiplication by .1 is to transform units from A to nm
-    coords = []
-    for i in range(len(xyz_arr)):
-        coords.append(Vec3(xyz_arr[i][0]*.1, xyz_arr[i][1]*.1, xyz_arr[i][2]*.1))
-    positions = coords * nanometer
-    simulation.context.setPositions(positions)
-
-    state = simulation.context.getState(getEnergy=True, getForces=True)
-    forces = state.getForces(asNumpy=True)
-    energy = state.getPotentialEnergy()
-    print('MM ENERGY: ', energy/kilocalories_per_mole, 'KCAL/MOL ', energy)
-    return energy/kilocalories_per_mole
 
 
 
@@ -45,9 +24,9 @@ def conformation_search(sys_geo, num_conformations, filename, num_solvent=None, 
 
     # First, we want to assign atom types and charges to the solute
     psi_solute = psi4.geometry(sys_geo)
-    psi4.set_global_option("BASIS", "sto-3g")
+    psi4.core.set_global_option("BASIS", "sto-3g")
     psi_solute.update_geometry()
-    gt_solute = gt.Molecule(*gt.psi_omm.psi_mol_to_omm(psi_solute))
+    gt_solute = gt.molecule.Molecule(*gt.psi_omm.psi_mol_to_omm(psi_solute))
     solute_atom_types = gt.atom_typer.atom_type_system(gt_solute.z_vals, gt_solute.xyz)
     #e_solute, wfn_solute = psi4.property("b3lyp", properties=["MULLIKEN_CHARGES"], return_wfn=True)
     #solute_charges = list(np.asarray(wfn_solute.atomic_point_charges()))
@@ -56,7 +35,6 @@ def conformation_search(sys_geo, num_conformations, filename, num_solvent=None, 
       , 0.15394, 0.12557]*10
 
 
-    print solute_atom_types
 
     log_str += filename +'\n\n'
     log_str += 'SOLUTE GEOMETRY\n\n'
@@ -171,7 +149,7 @@ def conformation_search(sys_geo, num_conformations, filename, num_solvent=None, 
             gt.psi_omm.write_traj(filename+'.xyz', topology, simulation, gt_sys) 
             simulation.step(10000)
             gt.psi_omm.write_traj(filename+'.xyz', topology, simulation, gt_sys) 
-            print "Time for step iteration " + str(ix) + ": ", time.time() - t
+            print( "Time for step iteration " + str(ix) + ": ", time.time() - t)
             
 
 
@@ -271,7 +249,7 @@ def add_solvent(solute_geo, solvent_geo, num_solvent=None):
     ret_solute = output_system[:len(solute_xyz)]
     ret_solvent = output_system[len(solute_xyz):]
 
-    print "Time to add solvent: ", time.time()-t
+    print( "Time to add solvent: ", time.time()-t)
     return ret_solvent
 
 def xyz_to_array(xyz_string):
@@ -313,14 +291,18 @@ def calc_dihedral(mol, indices):
 
     return dihedral
 
-hydroxyurea = ''
-with open('1-methylhydroxyurea_10.xyz', 'r') as myfile:
-    temp_1mhu=myfile.read()
-    #temp_1mhu = temp_1mhu.strip().split('\n')
-    hydroxyurea = ''
-    for x in temp_1mhu.strip().split('\n')[2:]:
-        hydroxyurea += x + '\n'
-print hydroxyurea
+#hydroxyurea = ''
+#with open('1-methylhydroxyurea_10.xyz', 'r') as myfile:
+#    temp_1mhu=myfile.read()
+#    #temp_1mhu = temp_1mhu.strip().split('\n')
+#    hydroxyurea = ''
+#    for x in temp_1mhu.strip().split('\n')[2:]:
+#        hydroxyurea += x + '\n'
+#print( hydroxyurea)
+
+wat_1 = """O    0.1747051   1.1050002  -0.7244430
+H   -0.5650842   1.3134964  -1.2949455
+H    0.9282185   1.0652990  -1.3134026"""
 
 ethane = """  F      1.1851     -0.0039      0.9875
   C      0.7516     -0.0225     -0.0209
@@ -336,5 +318,5 @@ ethane = """  F      1.1851     -0.0039      0.9875
 #conformation_search(bal_0a1, 10, 'dihedral_test.xyz', num_solvent=1000, solvent_geo=chloroform)
 #conformation_search(ethane, 10, 'dihedral_test.xyz')
 #conformation_search(bal_3a, 10, 'bal_3_0_chloroform_open_min50', num_solvent=500, solvent_geo=chloroform)
-conformation_search(hydroxyurea, 10, 'hydroxyurea_10_water_1000', num_solvent=1000, solvent_geo=wat_1)
+conformation_search(ethane, 10, 'hydroxyurea_10_water_1000', num_solvent=1, solvent_geo=wat_1)
  

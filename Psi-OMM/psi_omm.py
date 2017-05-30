@@ -1,45 +1,73 @@
+from sys import stdout
 import itertools
 import numpy as np
-from sys import stdout
-from simtk.openmm.app import *
+import simtk.openmm.app 
 from simtk.openmm import *
 from simtk.unit import *
 import simtk.openmm as mm
 from psi4.driver.qcdb import periodictable
+from psi4.driver.qcdb import physconst as pc
 import BFS_bonding
 
-
-# use this if just running python: from psi4.python.qcdb import parkerZOTT
+# variables prefixed with 'po_' indicate objects for use linking Psi (the p) and OpenMM (the o)
 
 # pdb.positions is list of tuples(Vec3 objects) w units [(x,y,z), (x,y,z)] nm
-"""CONSTANTS COPIED FROM PSI"""
-bohr2angstroms = .52917720859
-angstroms2nanometers = .1
 
 """ zvals is a list of atomic numbers, xyz is a list of lists [ [x,y,z] , [x,y,z] ], bonds is a list of two items: index 0 is as list of lists [ [atom1, atom2, bondorder] ], and index 1 is a list of lists where index 0 is atom 0 and the list at index 0 is the list of indices bonded to """
 
-def make_top(zvals, bonds, atomTypes):
-    natom = len(zvals)
-    nbonds = len(bonds[0])
-    top = Topology()
-    smallChain = top.addChain("smallCh")
-    smallResidue = top.addResidue("smallRes", smallChain, "1")
-    for a in range(natom):
-        # add atoms to topology
-        top.addAtom(atomTypes[a], Element.getByAtomicNumber(zvals[a]), smallResidue, str(a))  
-    atoms_dict = {}
-    i = 0
-    for a in top.atoms():
-        atoms_dict[i] = a
-        i += 1
-    for b in range(nbonds):
-        # add bond to topology
-        #top.addBond(bonds[0][b][0], bonds[0][b][1])     
-        top.addBond(atoms_dict[bonds[0][b][0]], atoms_dict[bonds[0][b][1]])     
-        # determine what type of atom type the atoms should have
-    top.setUnitCellDimensions(Vec3(1*nanometer,1*nanometer,1*nanometer))
+def make_topology(mol, chain_name=None, residue_name=None, res_id=None, unit_cell=(1,1,1)):
+    """
+    Method to make an OpenMM topology from a Molecule instance.
+    For the current iteration of the interface, this method will
+    be called when you want to add any new residue/chain; residues
+    and chains are treated as being one and the same here since
+    we don't typically use proteins.
+
+    Currently this breaks some OpenMM features. Needs revision!
+
+    mol : Molecule object
+        Takes in a Molecule object which has z_vals, bonds, and atom_types.
+    chain_name : string
+        Name of chain to add to the Topology.
+    residue_name : string
+        Name of residue to add to the Topology.
+    res_id : string
+        id of residue to add to the Topology.
+    unit_cell : length 3 Container 
+        Dimensions of unit cell for the Topology. Pass in dimensions in nanometers as 
+        normal float/integer values. Not necessary to pass in OpenMM Unit objects.
+
+    Returns
+    -------
+    OpenMM Topology object 
+    """
+    # get the number of bonds; bonds[0] is a list of length 3 lists that contain
+    # the atom indices of the two atoms in a bond as well as the bond order
+    nbonds = len(mol.bonds[0])
+    # instantiate an empty Topology object
+    po_top = simtk.openmm.app.topology.Topology()
     
-    return top   
+    po_chain = po_top.addChain("po_chain" if chain_name is None else chain_name)
+    po_residue = po_top.addResidue("po_res" if residue_name is None else residue_name, po_chain, id=("po_res" if res_id is None else res_id))
+
+    for a_ix in range(mol.natoms()):
+        # add atoms to topology; here, the name we give each atom is its atom type
+        # OpenMM labels all atoms with a unique id, thus it is fine to have equivalent names
+        po_top.addAtom(mol.atom_types[a_ix], Element.getByAtomicNumber(zvals[a_ix]), po_residue)  
+
+    # place the OpenMM Atom objects into a dictionary for simple access
+    atoms_dict = {}
+    for ix, at in enumerate(po_top.atoms()):
+        atoms_dict[ix] = at
+
+    # with the Atoms ordered above, we can now easily add the bonds 
+    for b_ix in range(nbonds):
+        # recall the mol.bonds[0] is ordered as [bond index][atom index 1, atom index 2, bond order]
+        po_top.addBond(atoms_dict[mol.bonds[0][b_ix][0]], atoms_dict[mol.bonds[0][b_ix][1]])     
+
+    po_top.setUnitCellDimensions( Vec3(unit_cell[0]*nanometer, unit_cell[1]*nanometer, unit_cell[2]*nanometer) )
+    
+    return po_top   
 
 def build_omm_system(top, bondinfo, psi_charges):
     forcefield = ForceField('gaff.xml', 'tip3p.xml')
@@ -216,7 +244,7 @@ def make_xyz_matrix(natom, simulation):
     index = 0
     for xyz in simulation.context.getState(getPositions=True).getPositions():
         for i in range(3):
-            psi_mat[index][i] = xyz[i].__dict__['_value']*10 / bohr2angstroms 
+            psi_mat[index][i] = xyz[i].__dict__['_value']*10 / pc.psi_bohr2angstroms 
         index += 1
     return psi_mat       
 
@@ -236,9 +264,9 @@ def psi_mol_to_omm(psi_mol):
     xyz = []
     for atom_index in range(psi_mol.natom()):
         xyz.append([0]*3)
-        xyz[atom_index][0] = psi_mol.x(atom_index) * bohr2angstroms
-        xyz[atom_index][1] = psi_mol.y(atom_index) * bohr2angstroms
-        xyz[atom_index][2] = psi_mol.z(atom_index) * bohr2angstroms
+        xyz[atom_index][0] = psi_mol.x(atom_index) * pc.psi_bohr2angstroms
+        xyz[atom_index][1] = psi_mol.y(atom_index) * pc.psi_bohr2angstroms
+        xyz[atom_index][2] = psi_mol.z(atom_index) * pc.psi_bohr2angstroms
         z_vals.append(periodictable.el2z[psi_mol.symbol(atom_index)])
         #z_vals.append(GAFF_Typer.periodictable.el2z[psi_mol.symbol(atom_index)])
     return (z_vals, xyz)

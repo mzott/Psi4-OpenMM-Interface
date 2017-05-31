@@ -169,7 +169,125 @@ def calc_mm_E(mol, forcefield=simtk.openmm.app.forcefield.ForceField('gaff2.xml'
 
     return energy/kilocalories_per_mole
 
+def add_solvent(solute_mol, solvent_mol, num_solvent=None, box_size=(10,10,10), stacked=True):
+    """
+    Add solvent around a solute. This method is very rudimentary and adds solvent
+    around a rectangular box which surrounds the solute. Thus, for accurate structures
+    a energy minimization must be performed after use of this method. The solvent is 
+    added on a grid whose size is determined by the size of the solvent which is also
+    modeled as a rectangle.
+    
+    TODO: Change from rectangle with padding around solvent to a Van Der Waals radii based
+    approach.
 
+    The solvent is added radially around the solute. Thus, with enough solvent molecules added, 
+    the entire solute/solvent system will approximate a sphere. 
+
+    In OpenMM, there exists a method to addSolvent, but it only adds water molecules. In order to 
+    use other solvents (and not use PDB files), this method exists. When OpenMM adds solvent molecules,
+    the standard appears to be to create a new Chain for the solvent system. Within this Chain, every
+    individual solvent molecule becomes a Residue. In order to keep track of individual solvent molecules,
+    set stacked=False.
+
+    solute_mol : Psi-OMM Molecule
+        Psi-OMM Molecule representing the solute system. Only needs to contain
+        xyz - this is required of all Psi-OMM Molecules, thus any Psi-OMM 
+        Molecule will work.
+    solvent_mol : Psi-OMM Molecule
+        Psi-OMM Molecule representing a single solvent molecule. See solute_mol.
+    num_solvent : int
+        Number of solvent molecules to add around the solute.
+    box_size : tuple
+        Tuple of box dimensions to fill with solvent. Dimensions should be
+        in Angstroms.
+    stacked : Boolean
+        If True, returns the added solvent's z_vals and xyz arrays as single arrays;
+        arrays would have the form [N] and [N,[3]].
+        If False, z_vals and xyz will be lists of length num_solvent of z_vals and
+        xyz arrays; lists would have form [N[1]] and [N[n,[3]]] where n is the 
+        number of atoms in the solvent molecule.
+
+    Returns
+    -------
+    Tuple of Numpy arrays of form described in stacked. Note that the returned
+    arrays only contain information about the SOLVENT that has been added. In
+    order to create a simluation with both the solute and solvent, the solute and
+    solvent arrays will need to be combined.
+    """
+    z_arr_list = []
+    xyz_arr_list = []
+
+    t = time.time()
+    solute_xyz = solute_mol.xyz
+    solvent_xyz = solvent_mol.xyz
+
+    # Center solute
+    solute_xyz -= np.mean(solute_xyz, axis=0)
+    # Pad the region around the solute
+    solute_box = 2.0 * np.max(solute_xyz, axis=0)
+    solute_box += 2.0
+
+    # Center solvent
+    solvent_xyz -= np.mean(solvent_xyz, axis=0)
+    # Pad the region around the solvent
+    solvent_box = 2.0 * np.max(solvent_xyz, axis=0)
+    solvent_box += 1.25
+
+    # Find the maximum allowable extent of the solvent molecules, constrained
+    # by the box_size
+    sphere_dist = np.linalg.norm(solvent_box)
+
+    solvent_placed = 0
+
+    # If the number of solvent molecules desired is not specified, add a default value of 5
+    if num_solvent is None:
+        num_solvent = 5
+
+    # Break the addition of solvent into radial shells; default number of 
+    # shells is up to 30 which seems to typically work well.
+    for nshell in range(1, 30):
+        if solvent_placed >= num_solvent:
+            break
+
+        #print('Starting shell %d, waters %d' % (nshell, solvent_placed))
+        batch = 500 * nshell ** 2
+        phi_x = np.random.rand(batch) * np.pi
+        theta_x = np.random.rand(batch) * 2.0 * np.pi
+
+        random_xyz = np.vstack((nshell * sphere_dist * np.cos(theta_x) * np.sin(phi_x),
+                                nshell * sphere_dist * np.sin(theta_x) * np.sin(phi_x),
+                                nshell * sphere_dist * np.cos(phi_x))).T
+
+        for b in range(batch):
+            displacement = random_xyz[b]
+
+            distances = np.sum((output_xyz - displacement)**2, axis=1) ** 0.5
+            if np.any(distances < sphere_dist):
+                #print('Skipping distance!')
+                continue
+
+            z_arr_list.append(solvent_mol.z_vals)
+            xyz_arr_list.append(solvent_xyz + displacement)
+
+            #output_xyz = np.vstack((output_xyz, solvent_xyz + displacement))
+            #output_z_vals = np.vstack((output_z_vals, np.array([[x[0]] for x in solvent_geo_array])))
+
+            solvent_placed += 1
+            if solvent_placed >= num_solvent:
+                break
+
+    print( "Time to add solvent: ", time.time()-t)
+
+    if stacked is False:
+        return (z_arr_list, xyz_arr_list)
+
+    else:
+        # Need to stack the z_vals and xyz arrays
+        stacked_z = np.hstack(tuple(z_arr_list))
+        stacked_xyz = np.vstack(tuple(xyz_arr_list))
+        return (stacked_z, stacked_xyz)    
+
+ 
 
 
 

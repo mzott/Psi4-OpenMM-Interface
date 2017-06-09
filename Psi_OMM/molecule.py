@@ -2,13 +2,16 @@ from __future__ import absolute_import
 from __future__ import print_function
 import os
 import subprocess
+import itertools
 import numpy as np
 import psi4
 from psi4.driver.qcdb import periodictable
 from psi4.driver.qcdb import physconst
+from psi4.driver.qcdb import cov_radii
 from . import BFS_bonding
 from . import helper_methods as hm
 from . import calculate_rmsd as cr
+from . import analysis_methods as am
 
 class Molecule(object):
     def __init__(self, z_vals, xyz, unit='Angstrom'):
@@ -336,7 +339,7 @@ class Molecule(object):
         v1 = point2 - point1
         v2 = point3 - point1
 
-        return np.arccos( np.dot(v1, v2) / np.linalg.norm(v1) / np.linalg.norm(v2) )
+        return hm.vector_angle(v1, v2)
 
     def plane_perp_vec(self, atom1, atom2, atom3):
         """
@@ -394,6 +397,26 @@ class Molecule(object):
 
 #TODO: Add methods to return all bonds, angles, dihedrals that exist between BONDED ATOMS only
 
+    def is_overlapped(self, atom1, atom2):
+        """
+        Using covalent radii, check if atom1 and atom2 are overlapping. 
+    
+        atom1, atom2 : Indices of atom1 and atom2 in self.xyz
+    
+        Returns
+        -------
+        Boolean - True if the distance between atom1 and atom2 is less
+        than the sum of their covalent radii 
+        """
+        # Find covalent radii
+        r1 = cov_radii.psi_cov_radii[self.symbol(self.z_vals[atom1])]
+        r2 = cov_radii.psi_cov_radii[self.symbol(self.z_vals[atom2])]
+
+        # Find distance
+        d = self.distance(atom1, atom2)
+        
+        return d < (r1 + r2)*1.2
+
     def substitute(self, atom1, group, group_ix=0):
         """
         Substitute the atom at index atom1 with the group defined by the Psi-OMM Molecule
@@ -420,9 +443,6 @@ class Molecule(object):
         new_geo = self.xyz.copy()      
         new_z_vals = self.z_vals.copy()        
 
-        # Find the mean (average) atomic position of group
-        aap = np.mean(group.xyz, axis=0)
-
         # Find the bisecting vector between atom1 and its neighbors
         # First, identify the list of atoms that are neighbors to atom1
         neighbors = self.neighbors(atom1)
@@ -437,50 +457,35 @@ class Molecule(object):
 
         uv = np.sum(np.asarray(uvs), axis=0)
         uv /= np.linalg.norm(uv)
+        uv.shape = (1,3)
+        #uv = np.append(uv, np.array([[0,0,0]]), axis=0)
+
+        # Translate the group's atom at group_ix to (0,0,0) and the rest of the group
+        # to prepare for rotation (needs to be at origin for rotation)
+        group.xyz -= group.xyz[group_ix]
+
+        # Find the centroid of the orientation and group
+        centroid = np.mean(uv, axis=0)
+        g_centroid = np.mean(group.xyz, axis=0)
+
+        # Find the group unit vector pointing from atom at group_ix to g_centroid
+        g_uv = g_centroid - group.xyz[group_ix]
+        g_uv /= np.linalg.norm(g_uv)
+        g_uv.shape = (1,3)
+        
+        g_uv_orig = g_uv.copy()
+        g_uv_orig.shape = (3,)
+
+        #g_uv = np.append(g_uv, np.array([[0,0,0]]), axis=0)
+
+        # Align group by rotating g_uv to uv in order to find the rotation matrix
+        R = am.find_rotation(g_uv, uv)
+
+        group.xyz = np.dot(R, group.xyz.T)
+        group.xyz = group.xyz.T 
 
         # Translate the group geometry such that the atom at group_ix lies at the position of atom1
-        group.xyz += (self.xyz[atom1] - group.xyz[group_ix])
-
-        # Rotate the group such that its mean atomic position lies along the unit vector uv
-        """
-        Algorithm stolen from user Jur van den Berg at Stack Exchange:
-        https://math.stackexchange.com/questions/180418/calculate-rotation-matrix-to-align-vector-a-to-vector-b-in-3d
-        Notation below follows his answer. 
-        """
-        a = aap - self.xyz[atom1]
-        a /= np.linalg.norm(a)
-        b = uv
-
-        v = np.cross(a, b)
-        
-        # Cos of angle
-        x = np.dot(a, b) / np.linalg.norm(a) / np.linalg.norm(b)
-        angle_AB = np.arccos(np.clip(x, -1, 1)) 
-
-        s = np.linalg.norm(v) * np.sin(angle_AB)
-
-        c = np.dot(a, b) * np.cos(angle_AB)
-
-        # Rotation matrix, R = I + Vx + Vx^2 * (1-c)/s^2
-        I = np.identity(3)
-        Vx = np.array([[0, -v[2], v[1]], [v[2], 0, -v[0]], [-v[1], v[0], 0]])
-
-        R = I + Vx + np.linalg.matrix_power(Vx, 2) / (1+c)
-        #R = I + Vx * np.sin(angle_AB) + (1-np.cos(angle_AB)) * Vx * Vx
-        print(R)
-        print(Vx)
-
-        # Apply the rotation matrix to the group
-        #print(group.xyz, '\n')
-        #group.xyz = np.dot(R, group.xyz.T)
-        #print(group.xyz, '\n')
-        #group.xyz = group.xyz.T
-        #print(group.xyz, '\n')
-
-        #for x in range(len(group.xyz)):
-        #    print(group.xyz[x])
-        new_geo = cr.kabsch_rotate(group.xyz, aap)
-
+        group.xyz += self.xyz[atom1] 
 
         # Add the group to the molecule
         # First, remove atom1
@@ -494,6 +499,53 @@ class Molecule(object):
         # Update geometry of molecule with new_geo
         self.xyz = new_geo
         self.z_vals = new_z_vals
+
+        # Check that the rotated, translated group does not overlap with any atoms in the original
+        # molecule. If so, rotate it in 30 degree increments to try to resolve any overlaps.
+        n = group.xyz.shape[0]
+        N = self.xyz.shape[0]
+
+        # 12 possible rotations by 30 degrees
+        no_overlaps = False
+        for x in range(12):
+            if no_overlaps is True:
+                print("Took %d rotations to arrive at new geometry." % (x))
+                break
+
+            found_overlap = False
+
+            # Don't want atom at group_ix because it IS bonded to the original molecule and WILL overlap
+            group_indices = list(range(N-n, N))
+            group_indices.remove(group_ix + N - n)
+            for at, g_at in itertools.product(range(N-n), group_indices):
+                # If atoms are overlapped, rotate
+                if self.is_overlapped(at, g_at):
+                    found_overlap = True
+                    # Find rotation matrix
+                    rot_axis = uv
+                    R = am.rotation_matrix(uv, np.pi/6) 
+                    
+                    # Rotate
+                    group.xyz = self.xyz[N-n:]
+                    old_pos = group.xyz[group_ix].copy()
+                    group.xyz -= old_pos
+                    group.xyz = np.dot(R, group.xyz.T)
+                    group.xyz = group.xyz.T 
+                    group.xyz += old_pos
+
+                    # Replace old group with rotated group
+                    self.xyz[N-n:] = group.xyz
+                    
+                    break
+
+            no_overlaps = True if found_overlap is False else False
+
+
+
+        
+
+
+
 
 
 

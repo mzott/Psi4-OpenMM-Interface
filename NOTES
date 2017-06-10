@@ -1,0 +1,21 @@
+To use this package, you will need several additional programs.
+
+You will obviously need Psi4 and OpenMM; see their respective websites
+for installation help. Both packages have conda distributions.
+
+In order to generate atom types, you will need Antechamber. The easiest
+way to get a hold of this program is to get it through the ambermini
+distribution on conda:  conda install -c omnia ambermini=16.16.0
+Elsewise, you can compile your own version of AmberTools. See
+http://ambermd.org/; the compilation is relatively straightforward.
+
+For generating atom types, the program OpenBabel will also be needed. This
+program can also be found on conda.
+
+Currently, the python module pandas is needed for one method. This 
+will likely be changed in the future. As of now, pandas is easily attained via conda.
+
+
+
+
+

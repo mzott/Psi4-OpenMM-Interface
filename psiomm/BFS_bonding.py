@@ -2,7 +2,15 @@ from __future__ import absolute_import
 from __future__ import print_function
 import math
 from psi4.driver.qcdb.physconst import *
-from psi4.driver.qcdb.physconst import *
+from psi4.driver.qcdb.cov_radii import *
+
+"""
+This code is primarily written by Trent M. Parker
+"""
+
+#TODO: implement penalty scores in bond algorithm
+#TODO: enable radicals/charged species to have bonds determined correctly
+#TODO: eliminate duplication of code; align code to rest of code base
 
 BOND_FACTOR = 1.2  # fudge factor for bond length threshold
 

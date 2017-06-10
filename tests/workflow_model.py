@@ -6,11 +6,15 @@ import psi4
 from simtk.openmm.app import *
 from simtk.openmm import *
 from simtk.unit import *
-import simtk.openmm as mm
 
-import molecule
-import psi_omm as po
-    
+from psiomm import molecule
+from psiomm import psi_omm as po
+ 
+"""
+This is a workflow model for using Psi4 and OpenMM together. It is meant to
+represent some of the useful features in the interface.
+"""
+   
 # Declare geometries
 phenol = """ H      1.7344      0.1731      2.1387
   C      1.1780      0.0989      1.1986
@@ -38,12 +42,12 @@ s_solvent = molecule.Molecule.from_xyz_string(wat_1)
 
 # Assign bonds, atom types, charges (using Psi4)
 solute.generate_bonds()
-solute.generate_atom_types('temp_solu_ats')
+solute.generate_atom_types()
 solute.generate_charges()
 
 # The s_ prefix should be read as single
 s_solvent.generate_bonds()
-s_solvent.generate_atom_types('temp_solv_ats')
+s_solvent.generate_atom_types()
 s_solvent.generate_charges()
 
 # Using the s_solvent info, add 50 solvent molecules to the solute and create a new system

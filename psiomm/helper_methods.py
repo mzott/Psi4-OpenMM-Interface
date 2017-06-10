@@ -2,6 +2,11 @@ import os
 import pandas as pd
 import numpy as np
 
+"""
+These are methods which are helpful for some of the internal methods, but not likely to 
+be called by users.
+"""
+
 def which(program):
     """
     Method to find the path of an executable.
@@ -37,11 +42,11 @@ def which(program):
 def align_antechamber(xyz_string, antechamber_output):
     # Initial method written by Daniel Smith; @dgasmith
     # Read in both files
-    # skip first two lines where number of atoms and comment are
+    # Skip first two lines where number of atoms and comment are
     inp = pd.read_csv(xyz_string, skiprows=2, sep=' +', engine='python', header=None)
     inp.columns = ['Atom', 'X', 'Y', 'Z']
 
-    # find which lines to skip - only lines with 8 columns are desired
+    # Find which lines to skip - only lines with 8 columns are desired
     ant_o = open(antechamber_output, 'r')
     ant_data = ant_o.readlines()
     ant_o.close()
@@ -84,9 +89,7 @@ def align_antechamber(xyz_string, antechamber_output):
 
         translation_indices[irow] = idx
 
-    # print translation_indices
-
-    # Reorganize antechamer output
+    # Reorganize antechamber output
     out = out.iloc[translation_indices]
     out.reset_index()
 
@@ -100,11 +103,7 @@ def align_antechamber(xyz_string, antechamber_output):
 
     inp['GAFF'] = out['GAFF'].values
 
-    #print inp['GAFF']
-    #for x in range(len(inp['GAFF'])):
-    #    print( x , ":", inp['GAFF'][x] )
 
     #inp.to_csv('parsed_output.csv')
     return np.asarray(inp['GAFF'])
 
-#align_antechamber('llll.xyz', 'llll.backup')

@@ -12,6 +12,7 @@ from psi4.driver.qcdb import physconst
 
 from . import BFS_bonding
 from . import molecule
+from . import analysis_methods as am
 
 # variables prefixed with 'po_' indicate objects for use linking Psi (the p) and OpenMM (the o)
 # the po essentially means that these OpenMM objects have not been implemented to fully utilize
@@ -385,9 +386,10 @@ def tile_bonds(bonds, reps, num_solvent_atoms):
     # array, (bonds0, bonds1)
     return (ret_bonds0, ret_bonds1)
 
-def find_mm_min(mol, forcefield=simtk.openmm.app.forcefield.ForceField('gaff2.xml')):
+def mm_setup(mol, forcefield=simtk.openmm.app.forcefield.ForceField('gaff2.xml')):
     """
-    Method to calculate an OpenMM minimum energy geometry.
+    Method to set up an OpenMM simulation and associated objects. Useful as a precursor
+    to other methods. Advanced users should probably perform setup themselves.
 
     mol : Psi-OMM Molecule object
         Psi-OMM Molecule object that has z_vals and xyz and is able to 
@@ -401,7 +403,8 @@ def find_mm_min(mol, forcefield=simtk.openmm.app.forcefield.ForceField('gaff2.xm
 
     Returns
     -------
-    Psi-OMM Molecule with updated geometry
+    A tuple of the OpenMM topology, forcefield, system, integrator, and simulation
+    objects initialized for this molecule and with suitable defaults.
     """
     # Check that bonds, atom types, charges exist
     if mol.bonds is None:
@@ -435,16 +438,166 @@ def find_mm_min(mol, forcefield=simtk.openmm.app.forcefield.ForceField('gaff2.xm
     # Set the positions in the simulation so it knows where atoms are located
     simulation.context.setPositions(positions)
     
+    return (topology, forcefield, omm_sys, integrator, simulation)
+
+def find_mm_min(mol, E_tolerance=0.5, step_block=5000):
+    """
+    Method to calculate an OpenMM minimum energy geometry.
+
+    mol : Psi-OMM Molecule object
+        Psi-OMM Molecule object that has z_vals and xyz and is able to 
+        calculate atom_types or charges if it does not already have them. 
+    E_tolerance : float
+        Energy tolerance in kcal/mol to converge the energy minimization.
+        Default is 0.5 kcal/mol.
+    step_block : int
+        Number of steps to take per iteration in the annealing process. Default
+        is 5000 - raising this value will increase the amount of time it takes
+        to complete this method, but it may result in a more accurate geometry.
+
+    Returns
+    -------
+    Psi-OMM Molecule with updated geometry
+    """
+    top, ff, omm_sys, integrator, sim = mm_setup(mol)
+
+    # Anneal the system to try to get into the global minimum
+    sim.step(5000)
+    for i in range(1, 11):
+        integrator.setTemperature(200-20*i)
+        sim.step(5000)
+
     # Minimize the energy
-    simulation.minimizeEnergy(tolerance=2*kilojoule/mole)
+    sim.minimizeEnergy(tolerance=E_tolerance*kilocalorie/mole)
  
     # Get the updated geometry
-    new_z_vals, new_xyz = get_atom_positions(topology, simulation)
+    new_z_vals, new_xyz = get_atom_positions(top, sim)
     
     mol.z_vals = new_z_vals
     mol.xyz = new_xyz
    
     return mol 
 
-#TODO: Implement method to find x number of conformations; need to implement RMSD code first
+def find_conformations(mol, N, T, MM_sort=True, unique_geometries=False, RMSD_threshold=.1, has_solvent=False, return_E=False):
+    """
+    Method to find N different low energy conformations of the molecule.
+    This method works by first finding N*10 geometries annealed down to
+    temperature T and then sorting out the N lowest energy (MM energy) 
+    geometries if the MM_sort option is set to True. If the MM_sort
+    option is set to False, only N geometries are found and they are 
+    returned.
+
+    If you trust the forcefield, it is probably a good idea to leave
+    MM_sort set to True because you will likely get better geometries.
+    However, if you do not think the forcefield represents the system
+    well (and thus the potential energy surface), you might set
+    MM_sort to False in order to not miss false positive "high energy"
+    structures that are actually more stable than the forcefield indicates.
+
+    mol : Psi-OMM Molecule object
+        Psi-OMM Molecule object that has z_vals and xyz and is able to 
+        calculate atom_types or charges if it does not already have them. 
+    N : int
+        Number of conformations to find.
+    T : float
+        Temperature in Kelvin to find geometries at.
+    MM_sort : boolean
+        If True, finds 10*N MM geometries and returns the N lowest energy
+        structures. If False, only finds N geometries and returns them.
+    unique_geometries : boolean
+        If True, only returns unique geometries. These may be difficult to find;
+        thus, an unknown number of geometries must be computed in order to find 
+        N unique conformations. This will affect the running time. Unique geometries
+        are assessed using RMSD as a metric. A maximum of 200*N geometries are searched.
+    RMSD_threshold : float
+        Value that the RMSD must be greater than for two conformations to be deemed unique.
+        Value should be in Angstroms.
+    has_solvent : boolean
+        Set True if there is solvent in the simulation. This is important
+        to know if unique geometries are desired.
+    return_E : boolean  
+        If True, return the energies of the conformations as well. Energies are
+        in kcal/mol.
+
+    Returns
+    -------
+    List of length N of Numpy (3,L) arrays where L is the number of atoms in the system.
+    If return_E is True, returns a tuple of the above list and a list of energies, ((N,3), (N))
+    """
+    return_list = []
+    E_list = []
+
+    # Set max temperature to 30% greater than annealing temperature
+    max_T = T * 1.3
+
+    # Find the number of geometries that are initially desired
+    num_geos = N * 10 if MM_sort else N
+
+    # Maximum number of geometries if unique_geometries is True
+    max_num_geos = N * 200
+
+    top, ff, omm_sys, integrator, sim = mm_setup(mol)
+
+    # Let the system settle before annealing
+    sim.step(25000)
+
+    geos_seen = 0
+    while len(return_list) < num_geos:
+        # If unique geometries are desired, check that we haven't went over max_num_geos
+        if unique_geometries and geos_seen > max_num_geos:
+            print("""We have searched through %d geometries. We have only found %d
+                     unique geometries. We are stopping the search at this point
+                     in order to avoid excessive computational time. The %d unique
+                     geometries have been returned.""" % (max_num_geos, len(return_list), len(return_list)))
+            if return_E:
+                return (return_list, E_list)
+            return return_list
+
+        # Anneal the system to try to get into a local minimum
+        for i in range(1, 11):
+            integrator.setTemperature(max_T- (max_T-T)/10 * i )
+            sim.step(5000)
+    
+        # Get the updated geometry
+        new_z_vals, new_xyz = get_atom_positions(top, sim)
+    
+        # Check that the geometries are unique
+        is_unique = True
+
+        #TODO: has_solvent is unusued. It will be used here in RMSD method. Need
+        # a way to account for solvent molecules swapping places and inflating RMSD
+        for known_geo in return_list:
+            RMSD = am.rmsd(known_geo, new_xyz) 
+            # If the RMSD is too large, do not return the geometry
+            if RMSD > RMSD_threshold:
+                is_unique = False
+                break
+            
+        if is_unique:
+            return_list.append(new_xyz)
+            state = sim.context.getState(getEnergy=True, getForces=False)
+            energy = state.getPotentialEnergy()
+            energy /= kilocalories_per_mole
+            E_list.append(energy)
+
+        geos_seen += 1            
+
+    # If MM_sort is True, we need to return only the lowest 10% of geometries by energy
+    if MM_sort:
+        low_E_geos = []
+        low_E = []
+        # Find the maximum energy allowable
+        max_E = sorted(E_list)[N-1]
+        for ix, E in enumerate(E_list):   
+            if E < max_E:
+                low_E_geos.append(return_list[ix])
+                low_E.append(E)
+        return_list = low_E_geos
+        E_list = low_E
+
+    # We have found the number of geometries desired now. Return the list of the geometries.
+    if return_E:
+        return (return_list, E_list)
+    return return_list
+
 

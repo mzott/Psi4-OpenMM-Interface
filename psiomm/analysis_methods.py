@@ -25,23 +25,6 @@ def boltzmann_weight(E, temp, unit_conversion=physconst.psi_hartree2J):
     """
     return np.exp(-E*unit_conversion / kb / temp)
     
-def rmsd(a1, a2):
-    """
-    Return the root mean square deviation between arrays 1 and 2.
-
-    a1, a2 : Numpy array
-
-    Returns
-    -------
-    Float - root mean square deviation
-    """
-    # Check that the arrays are the same size
-    if np.shape(a1) != np.shape(a2):
-        raise Exception("""The shape of array 1 is not the same as the shape of array 2. If these arrays represent
-                         geometries, the molecules are not the same!""")
-
-    return np.sqrt(np.mean((a1-a2)**2))
-
 def vector_angle(v1, v2):
     """
     Method to find the angle between any two vectors via
@@ -128,4 +111,61 @@ def find_rotation(a, b):
     
     R = I + Vx + np.linalg.matrix_power(Vx, 2) / (1+c)
     return R 
+
+def SVD_rotate(m1, m2):
+    """
+    Method to find the rotation that takes points from m1 onto points in m2.
+
+    Uses singular value decomposition algorithm taken from Nghia Ho,
+    http://nghiaho.com/?page_id=671.
+
+    m1, m2: Numpy (3,N) arrays where N is the number of atoms. 
+        The arrays that represent geometries. The geometries must have
+        the same number of atoms. 
+
+    Returns
+    -------
+    The rotation matrix that will take m1 onto m2; Rm1 = m2.
+    """
+    assert m1.shape[0] == m2.shape[0]
+
+    # Find the centroids of m1, m2
+    centroid1 = np.mean(m1, axis=0)
+    centroid2 = np.mean(m2, axis=0)
+
+    # Build the covariance matrix
+    H = np.dot((m1 - centroid1).T, (m2 - centroid2))
+
+    U, S, V = np.linalg.svd(H)
+
+    # Middle matrix is to ensure that matrix yields a rotation, not reflection
+    R = np.dot(V.T, np.array([ [1,0,0] , [0,1,0], [0,0, np.linalg.det(np.dot(V.T,U.T))] ]) ) 
+    R = np.dot(R, U.T)
+
+    # Find translation 
+    t = -np.dot(R, centroid1) + centroid2
+ 
+    return (R, t)
+    
+def rmsd(a1, a2):
+    """
+    Return the root mean square deviation between arrays 1 and 2.
+
+    a1, a2 : Numpy array
+
+    Returns
+    -------
+    Float - root mean square deviation
+    """
+    # Check that the arrays are the same size
+    if np.shape(a1) != np.shape(a2):
+        raise Exception("""The shape of array 1 is not the same as the shape of array 2. If these arrays represent
+                         geometries, the molecules are not the same!""")
+
+    # Rotate and translate a2 so that it is as close to a1 as possible
+    R, t = SVD_rotate(a1, a2)
+    a2 = np.dot(R, a2.T)
+    a2 = a2.T + t 
+
+    return np.sqrt(np.mean((a1-a2)**2))
 

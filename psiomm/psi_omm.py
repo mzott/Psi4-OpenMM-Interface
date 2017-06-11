@@ -494,6 +494,8 @@ def find_conformations(mol, N, T, MM_sort=True, unique_geometries=False, RMSD_th
     MM_sort to False in order to not miss false positive "high energy"
     structures that are actually more stable than the forcefield indicates.
 
+    MM_sort and unique_geometries are mutually exclusive.
+
     mol : Psi-OMM Molecule object
         Psi-OMM Molecule object that has z_vals and xyz and is able to 
         calculate atom_types or charges if it does not already have them. 
@@ -524,6 +526,10 @@ def find_conformations(mol, N, T, MM_sort=True, unique_geometries=False, RMSD_th
     List of length N of Numpy (3,L) arrays where L is the number of atoms in the system.
     If return_E is True, returns a tuple of the above list and a list of energies, ((N,3), (N))
     """
+    # If MM_sort and unique_geometries are set, unique_geometries takes precedence
+    if MM_sort and unique_geometries:
+        MM_sort = False
+
     return_list = []
     E_list = []
 
@@ -539,7 +545,7 @@ def find_conformations(mol, N, T, MM_sort=True, unique_geometries=False, RMSD_th
     top, ff, omm_sys, integrator, sim = mm_setup(mol)
 
     # Let the system settle before annealing
-    sim.step(25000)
+    sim.step(2500)
 
     geos_seen = 0
     while len(return_list) < num_geos:
@@ -556,30 +562,41 @@ def find_conformations(mol, N, T, MM_sort=True, unique_geometries=False, RMSD_th
         # Anneal the system to try to get into a local minimum
         for i in range(1, 11):
             integrator.setTemperature(max_T- (max_T-T)/10 * i )
-            sim.step(5000)
+            sim.step(500)
     
         # Get the updated geometry
         new_z_vals, new_xyz = get_atom_positions(top, sim)
-    
-        # Check that the geometries are unique
-        is_unique = True
 
-        #TODO: has_solvent is unusued. It will be used here in RMSD method. Need
-        # a way to account for solvent molecules swapping places and inflating RMSD
-        for known_geo in return_list:
-            RMSD = am.rmsd(known_geo, new_xyz) 
-            # If the RMSD is too large, do not return the geometry
-            if RMSD > RMSD_threshold:
-                is_unique = False
-                break
-            
-        if is_unique:
+        if unique_geometries:    
+            # Check that the geometries are unique
+            is_unique = True
+
+            #TODO: has_solvent is unusued. It will be used here in RMSD method. Need
+            # a way to account for solvent molecules swapping places and inflating RMSD
+            for known_geo in return_list:
+                RMSD = am.rmsd(known_geo, new_xyz) 
+                print("RMSD", RMSD)
+                # If the RMSD is too large, do not return the geometry
+                if RMSD < RMSD_threshold:
+                    is_unique = False
+                    break
+                
+            if is_unique:
+                return_list.append(new_xyz)
+                state = sim.context.getState(getEnergy=True, getForces=False)
+                energy = state.getPotentialEnergy()
+                energy /= kilocalories_per_mole
+                E_list.append(energy)
+                print("Found a geometry")
+        else:
             return_list.append(new_xyz)
             state = sim.context.getState(getEnergy=True, getForces=False)
             energy = state.getPotentialEnergy()
             energy /= kilocalories_per_mole
             E_list.append(energy)
-
+            print("Found a geometry")
+            
+        print("Saw new geometry")
         geos_seen += 1            
 
     # If MM_sort is True, we need to return only the lowest 10% of geometries by energy

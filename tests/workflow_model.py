@@ -99,6 +99,7 @@ for i in range(omm_sys.getNumParticles()):
     external_force.addParticle(i, ())
 
 # Create the OpenMM Simulation
+# If you have GPUs, you should change 'Reference' to the appropriate platform e.g. 'CUDA'
 simulation = Simulation(topology, omm_sys, integrator, platform=Platform.getPlatformByName('Reference'))
 
 # Create positions as desired by OpenMM; multiplication by .1 is to transform units from A to nm

@@ -462,10 +462,10 @@ def find_mm_min(mol, E_tolerance=0.5, step_block=5000):
     top, ff, omm_sys, integrator, sim = mm_setup(mol)
 
     # Anneal the system to try to get into the global minimum
-    sim.step(5000)
+    sim.step(step_block)
     for i in range(1, 11):
         integrator.setTemperature(200-20*i)
-        sim.step(5000)
+        sim.step(step_block)
 
     # Minimize the energy
     sim.minimizeEnergy(tolerance=E_tolerance*kilocalorie/mole)

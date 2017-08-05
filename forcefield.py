@@ -1032,12 +1032,10 @@ class ForceField(object):
             data.atomBonds[bond.atom2].append(i)
 
         # Check that if atomTypes or atomCharges are passed in, both are passed in or neither is passed in
-        atomTypes, atomCharges = list(atomTypes), list(atomCharges)
-        if (bool(atomTypes) ^ bool(atomCharges)):
+        if (atomTypes is None and atomCharges is not None) or (atomTypes is not None and atomCharges is None):
             raise Exception('Need to provide both atomTypes and atomCharges')
 
         if atomTypes is None:
-
             # Find the template matching each residue and assign atom types.
 
             unmatchedResidues = []

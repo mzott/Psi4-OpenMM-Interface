@@ -13,6 +13,7 @@ from psi4.driver.qcdb import physconst
 from . import BFS_bonding
 from . import molecule
 from . import analysis_methods as am
+from . import generate_template as gt
 
 # variables prefixed with 'po_' indicate objects for use linking Psi (the p) and OpenMM (the o)
 # the po essentially means that these OpenMM objects have not been implemented to fully utilize
@@ -62,7 +63,7 @@ def make_topology(mol, chain_name=None, residue_name=None, res_id=None, unit_cel
     for a_ix in range(mol.natoms()):
         # add atoms to topology; here, the name we give each atom is its atom type
         # OpenMM labels all atoms with a unique id, thus it is fine to have equivalent names
-        po_top.addAtom(mol.atom_types[a_ix], simtk.openmm.app.Element.getByAtomicNumber(mol.z_vals[a_ix]), po_residue)  
+        po_top.addAtom(mol.atom_types[a_ix]+"%d" %a_ix, simtk.openmm.app.Element.getByAtomicNumber(mol.z_vals[a_ix]), po_residue)  
 
     # place the OpenMM Atom objects into a dictionary for simple access
     atoms_dict = {}
@@ -419,9 +420,12 @@ def mm_setup(mol, forcefield=simtk.openmm.app.forcefield.ForceField('gaff2.xml')
     
     # Declare the force field to be used
     forcefield = simtk.openmm.app.forcefield.ForceField('gaff2.xml')
-    
+
+   # Generate template for the force field
+    forcefield = gt.generateTemplate(forcefield, topology, mol)
+
     # Create the OpenMM System
-    omm_sys = forcefield.createSystem(topology, atomTypes=mol.atom_types, atomCharges=mol.charges)
+    omm_sys = forcefield.createSystem(topology)
     
     # Declare the integrator to be used
     integrator = simtk.openmm.openmm.LangevinIntegrator(25*kelvin, 1/picosecond, 0.002*picoseconds)

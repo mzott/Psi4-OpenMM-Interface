@@ -9,7 +9,6 @@ from simtk.unit import *
 
 from psiomm import molecule
 from psiomm import psi_omm as po
-from psiomm import generate_template as gt
 """
 This is a workflow model for using Psi4 and OpenMM together. It is meant to
 represent some of the useful features in the interface.
@@ -47,7 +46,7 @@ topology = po.make_topology(solute)
 forcefield = ForceField('gaff2.xml', 'tip3p.xml')
 
 # Generate template for the force field
-forcefield = gt.generateTemplate(forcefield, topology, solute)
+po.generateTemplate(forcefield, topology, solute)
 
 # Create positions as desired by OpenMM
 coords = []

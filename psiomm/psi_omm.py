@@ -1,6 +1,7 @@
 from sys import stdout
 import itertools
 import time
+import copy
 import numpy as np
 
 import simtk.openmm.app 
@@ -13,13 +14,36 @@ from psi4.driver.qcdb import physconst
 from . import BFS_bonding
 from . import molecule
 from . import analysis_methods as am
-from . import generate_template as gt
 
 # variables prefixed with 'po_' indicate objects for use linking Psi (the p) and OpenMM (the o)
 # the po essentially means that these OpenMM objects have not been implemented to fully utilize
 # all OpenMM functionality
+def generateTemplate(forcefield, topology, molecule):
+    """
+    Method to make OpenMM Templates for small molecules that do not
+    have a template yet. This is useful for manually assigning charges
+    and atom types.
+    forcefield : OpenMM Forcefield
+    topology : OpenMM Topology
+    molecule : Psi4-OpenMM Molecule 
 
-def make_topology(mol, chain_name=None, residue_name=None, res_id=None, unit_cell=(1,1,1)):
+    Returns
+    -------
+    OpenMM Forcefield object with new template registered and the topology
+    with the atom types and charges added.
+    """
+    [templates, residues] = forcefield.generateTemplatesForUnmatchedResidues(topology)
+    if len(templates) > 1:
+        raise Exception("Adding more than one new molecule class at a time. Not supported yet!!!")
+    for t in templates:
+        if t is None:
+            continue 
+        for index, atom in enumerate(t.atoms):
+            atom.type = molecule.atom_types[index]
+            atom.parameters = {'charge':molecule.charges[index]}
+        forcefield.registerResidueTemplate(t)
+
+def make_topology(mol, top=None, chain_name=None, residue_name=None, res_id=None, unit_cell=(1,1,1)):
     """
     Method to make an OpenMM topology from a Molecule instance.
     For the current iteration of the interface, this method will
@@ -31,6 +55,9 @@ def make_topology(mol, chain_name=None, residue_name=None, res_id=None, unit_cel
 
     mol : Molecule object
         Takes in a Molecule object which has z_vals, bonds, and atom_types.
+    top : OpenMM Topology
+        If an OpenMM topology is passed in, instead of making a new
+        topology, this topology will be updated with mol.
     chain_name : string
         Name of chain to add to the Topology.
     residue_name : string
@@ -55,7 +82,7 @@ def make_topology(mol, chain_name=None, residue_name=None, res_id=None, unit_cel
     # the atom indices of the two atoms in a bond as well as the bond order
     nbonds = len(mol.bonds[0])
     # Instantiate an empty Topology object
-    po_top = simtk.openmm.app.topology.Topology()
+    po_top = simtk.openmm.app.topology.Topology() if top is None else top
     
     po_chain = po_top.addChain("po_chain" if chain_name is None else chain_name)
     po_residue = po_top.addResidue("po_res" if residue_name is None else residue_name, po_chain, id=("po_res" if res_id is None else res_id))
@@ -78,6 +105,141 @@ def make_topology(mol, chain_name=None, residue_name=None, res_id=None, unit_cel
     po_top.setUnitCellDimensions( simtk.openmm.Vec3(unit_cell[0]*nanometer, unit_cell[1]*nanometer, unit_cell[2]*nanometer) )
     
     return po_top   
+
+def offset_bonds(bonds, offset):
+    """
+    Offset all of the numbers in the bonds array by value 
+    offset; useful for adding molecules to a system that's
+    already established because the bond arrays start at 0.
+    For a system with N atoms, all indices in the new molecule
+    to be added's bonds array need to be increased by N.
+
+    bonds : Psi-OMM Bonds Array
+
+    offset : Integer
+        number to increase indices in bonds by
+
+    Returns
+    -------
+    List of lists of lists in the form of the bonds array.
+    """
+    bc = copy.deepcopy(bonds)
+    for b0 in bc[0]:
+        # Increment the indices at b0[0] and b0[1] by the offset.
+        b0[0] += offset
+        b0[1] += offset
+
+    for b1 in bc[1]:
+        # Increment every value in the list by offset.
+        for ix in range(len(b1)):
+            b1[ix] += offset
+    return bc
+
+def add_bonds(bonds1, bonds2):
+    """
+    Add the two bonds arrays together. For solute-solvent
+    systems, the standard is that solute is added before
+    solvent, thus bonds1 should be from solute and bonds2
+    from solvent.
+
+    bonds1 : Psi-OMM Bonds Array
+    
+    bonds2 : Psi-OMM Bonds Array
+    
+    Returns
+    -------
+    List of lists of lists in the form of the bonds array.
+    """
+    # Offset is equal to the number of atoms in the bonds1 array 
+    offset = len(bonds1[1])
+    b2o = offset_bonds(bonds2, offset)
+
+    return (bonds1[0] + b2o[0], bonds1[1] + b2o[1])
+
+def tile_bonds(bonds, reps, num_solvent_atoms):
+    """
+    Like the Numpy tile function, tile the bonds array.
+    The Numpy tile function cannot be used because the 
+    values in the bonds array need to be incremented by
+    the number of atoms in the solvent molecules.
+
+    bonds : Psi-OMM Bonds array
+        The bonds array for the solvent molecule.
+    reps : int
+        Number of repeats of the bonds array. For a simple
+        array, arr=[1,2], tile(arr, 3) would result in
+        [1,2,1,2,1,2].
+    num_solvent_atoms : int
+        Number of atoms in the solvent molecule. This value
+        is used to increment every atom index in the bonds array
+        (this is every value except bond orders).
+
+    Returns
+    -------
+    List of lists of lists in the form of the bonds array.
+    """
+    ret_bonds0 = bonds[0].copy()
+    ret_bonds1 = bonds[1].copy()
+
+    for tile_ix in range(1, reps):
+        for b0 in bonds[0]:
+            working_bond = b0.copy()
+            # Increment the indices at working_bond[0] and [1] by
+            # the num_solvent_atoms. working_bond[2] is the bond
+            # order and should be left alone.
+            working_bond[0] += num_solvent_atoms * tile_ix
+            working_bond[1] += num_solvent_atoms * tile_ix
+
+            ret_bonds0.append(working_bond)
+
+        for b1 in bonds[1]:
+            working_bond = b1.copy()
+            # Increment every value in the list by num_solvent_atoms.
+            for ix in range(len(working_bond)):
+                working_bond[ix] += num_solvent_atoms * tile_ix
+
+            ret_bonds1.append(working_bond)
+
+    # Return the new tiled bond array in the form of a typical bonds
+    # array, (bonds0, bonds1)
+    return (ret_bonds0, ret_bonds1)
+
+def add_solvent_to_topology(topology, forcefield, solv_mol, num_solvent, solv_name="user_solvent"):
+    """
+    Method to add solvent molecules to a topology as 'residues'
+    individually. More in line with OpenMM usage than calling
+    the solute and solvent one system altogether.
+
+    topology : OpenMM topology
+    forcefield : OpenMM forcefield
+    solv_mol : Psi-OMM Molecule
+        Psi-OMM Molecule of the solvent molecule that is to be added
+    num_solvent : Integer
+        Number of solvent molecules to add
+    solv_name : String
+        The name that the solvent molecules will be prepended with.
+        For example, adding 5 water molecules with name 'water' would
+        yield 'water1', ... , 'water5' as residue names
+
+    Returns
+    -------
+    OpenMM Topology and Forcefield as tuple
+    (topology, forcefield)
+    """
+    # Save original bonds list for future use
+    orig_bonds = copy.deepcopy(solv_mol.bonds)
+    # Add solvent molecules to topology
+    for i in range(num_solvent):
+        # Get number of atoms in topology already to offset solv_mol's bonds array by
+        n_atoms = topology.getNumAtoms()
+        solv_mol.bonds = offset_bonds(orig_bonds, n_atoms)
+        topology = make_topology(solv_mol, top=topology,
+                                 chain_name='solvent', residue_name=solv_name,
+                                res_id=solv_name+"%d" % i)
+       
+        # Generate template for this solvent molecule
+        generateTemplate(forcefield, topology, solv_mol)
+    return (topology, forcefield)
 
 def get_atom_positions(topology, simulation):
     """
@@ -108,7 +270,6 @@ def get_atom_positions(topology, simulation):
     unit_scaling = 10 if unit=='nanometer' else 1
 
     return (np.asarray(z_vals), np.asarray(xyz)*unit_scaling)
-
 
 def write_traj(filename, z_vals, xyz, comment=" generated by Psi-OMM"):
     """
@@ -181,7 +342,7 @@ def calc_mm_E(mol, forcefield=simtk.openmm.app.forcefield.ForceField('gaff2.xml'
 
     return energy/kilocalories_per_mole
 
-def add_solvent(solute_mol, solvent_mol, num_solvent=None, box_size=(10,10,10), stacked=True):
+def find_solvent_pos(solute_mol, solvent_mol, num_solvent=None, box_size=(10,10,10), stacked=True):
     """
     Add solvent around a solute. This method is very rudimentary and adds solvent
     around a rectangular box which surrounds the solute. Thus, for accurate structures
@@ -299,93 +460,6 @@ def add_solvent(solute_mol, solvent_mol, num_solvent=None, box_size=(10,10,10), 
         stacked_xyz = np.vstack(tuple(xyz_arr_list))
         return (stacked_z, stacked_xyz)    
 
-def add_bonds(bonds1, bonds2):
-    """
-    Add the two bonds arrays together. For solute-solvent
-    systems, the standard is that solute is added before
-    solvent, thus bonds1 should be from solute and bonds2
-    from solvent.
-
-    bonds1 : Psi-OMM Bonds Array
-    
-    bonds2 : Psi-OMM Bonds Array
-
-    Returns
-    -------
-    List of lists of lists in the form of the bonds array.
-    """
-    # Offset is equal to the number of atoms in the bonds1 array 
-    offset = len(bonds1[1])
-
-    ret_bonds0 = bonds1[0].copy()
-    ret_bonds1 = bonds1[1].copy()
-
-    for b0 in bonds2[0]:
-        working_bond = b0.copy()
-        # Increment the indices at working_bond[0] and [1] by
-        # the offset.
-        working_bond[0] += offset
-        working_bond[1] += offset
-
-        ret_bonds0.append(working_bond)
-
-    for b1 in bonds2[1]:
-        working_bond = b1.copy()
-        # Increment every value in the list by offset.
-        for ix in range(len(working_bond)):
-            working_bond[ix] += offset
-
-        ret_bonds1.append(working_bond)
-
-    return (ret_bonds0, ret_bonds1)
-
-def tile_bonds(bonds, reps, num_solvent_atoms):
-    """
-    Like the Numpy tile function, tile the bonds array.
-    The Numpy tile function cannot be used because the 
-    values in the bonds array need to be incremented by
-    the number of atoms in the solvent molecules.
-
-    bonds : Psi-OMM Bonds array
-        The bonds array for the solvent molecule.
-    reps : int
-        Number of repeats of the bonds array. For a simple
-        array, arr=[1,2], tile(arr, 3) would result in
-        [1,2,1,2,1,2].
-    num_solvent_atoms : int
-        Number of atoms in the solvent molecule. This value
-        is used to increment every atom index in the bonds array
-        (this is every value except bond orders).
-
-    Returns
-    -------
-    List of lists of lists in the form of the bonds array.
-    """
-    ret_bonds0 = bonds[0].copy()
-    ret_bonds1 = bonds[1].copy()
-
-    for tile_ix in range(1, reps):
-        for b0 in bonds[0]:
-            working_bond = b0.copy()
-            # Increment the indices at working_bond[0] and [1] by
-            # the num_solvent_atoms. working_bond[2] is the bond
-            # order and should be left alone.
-            working_bond[0] += num_solvent_atoms * tile_ix
-            working_bond[1] += num_solvent_atoms * tile_ix
-
-            ret_bonds0.append(working_bond)
-
-        for b1 in bonds[1]:
-            working_bond = b1.copy()
-            # Increment every value in the list by num_solvent_atoms.
-            for ix in range(len(working_bond)):
-                working_bond[ix] += num_solvent_atoms * tile_ix
-
-            ret_bonds1.append(working_bond)
-
-    # Return the new tiled bond array in the form of a typical bonds
-    # array, (bonds0, bonds1)
-    return (ret_bonds0, ret_bonds1)
 
 def mm_setup(mol, forcefield=simtk.openmm.app.forcefield.ForceField('gaff2.xml')):
     """
@@ -422,7 +496,7 @@ def mm_setup(mol, forcefield=simtk.openmm.app.forcefield.ForceField('gaff2.xml')
     forcefield = simtk.openmm.app.forcefield.ForceField('gaff2.xml')
 
    # Generate template for the force field
-    forcefield = gt.generateTemplate(forcefield, topology, mol)
+    forcefield = generateTemplate(forcefield, topology, mol)
 
     # Create the OpenMM System
     omm_sys = forcefield.createSystem(topology)

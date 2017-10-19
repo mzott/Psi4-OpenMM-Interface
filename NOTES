@@ -15,15 +15,3 @@ program can also be found on conda.
 Currently, the python module pandas is needed for one method. This 
 will likely be changed in the future. As of now, pandas is easily attained via conda.
 
-In order for the interface to work properly, you will want to use the forcefield.py 
-file provided in this repository in place of the one in OpenMM. Until they accept my
-pull request/implement a similar feature for manual assignment of atom types, charges,
-or other properties via lists/arrays/other containers. This file is found at 
-    /lib/python3.6/site-packages/simtk/openmm/app/forcefield.py 
-where lib is usually found in the conda distribution if installed that way i.e.
-conda3/lib/...
-
-
-
-
-

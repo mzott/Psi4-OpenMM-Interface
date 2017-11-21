@@ -16,10 +16,13 @@ BOND_FACTOR = 1.2  # fudge factor for bond length threshold
 
 _expected_bonds = {
     'H': 1,
+    'B': 3,
     'C': 4,
     'N': 3,
     'O': 2,
     'F': 1,
+    'AL':3,
+    'SI':4,
     'P': 3,
     'S': 2,
     'CL':1

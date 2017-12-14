@@ -1,4 +1,4 @@
-Psi4-OpenMM-Interface
+Psi4-OpenMM Interface
 =====================
 Minimal interface between Psi4 and OpenMM that allows passing of systems between each program. Additionally, some helpful tools are included such as spherical addition of solvent (because adding solvent other than water doesn't work with addSolvent in OpenMM), calculation of bond lengths, angles, dihedrals, and unique conformation searching. 
 
@@ -19,11 +19,16 @@ How to Install
 Using this package is very easy thanks to the capabilities provided by both Github and Conda. "Installing" this package is (hopefully) simple. Before any of the following steps, if you do not have Conda, please install it [here](https://www.anaconda.com/download/ "Conda"). Although Conda is not necessary to use this interface, it greatly simplifies the installation of all of the dependencies. Advanced users can choose to simply clone this repo (steps 1. and 2.) and add the ` psiomm ` directory to their ` PYTHONPATH ` and install the other programs as they wish.
 
 1. Get a copy of this repo: 
-  ` git clone https://github.com/mzott/Psi4-OpenMM-Interface.git `
+
+    ` git clone https://github.com/mzott/Psi4-OpenMM-Interface.git `
 
 2. Add the ` psiomm ` directory to your ` PYTHONPATH `:
-* Bash: ` export PYTHONPATH="/path/to/location/of/interface/Psi4-OpenMM-Interface:$PYTHONPATH" `
-* tcsh: ` setenv PYTHONPATH "/path/to/location/of/interface/Psi4-OpenMM-Interface:$PYTHONPATH" `
+* Bash: 
+
+    ` export PYTHONPATH="/path/to/location/of/interface/Psi4-OpenMM-Interface:$PYTHONPATH" `
+* tcsh: 
+
+    ` setenv PYTHONPATH "/path/to/location/of/interface/Psi4-OpenMM-Interface:$PYTHONPATH" `
  
 3. Install Psi4 and OpenMM if you do not have them already (only Conda approach presented here):
 * ` conda install -c psi4 psi4 `
@@ -31,11 +36,14 @@ Using this package is very easy thanks to the capabilities provided by both Gith
 
 4. Install additional dependencies:
 * Antechamber is used to calculate atom types automatically; if you have AmberTools installed, you should have Atechamber already and this step is unnecessary. If you need Antechamber:
-` conda install -c omnia ambermini=16.16.0 `
+
+    ` conda install -c omnia ambermini=16.16.0 `
 * OpenBabel is also used to help switch between file formats:
-` conda install -c openbabel openbabel `
+
+    ` conda install -c openbabel openbabel `
 * Pandas is currently used as well:
-`  conda install -c anaconda pandas `
+
+    `  conda install -c anaconda pandas `
 
 Additional Resources
 ====================

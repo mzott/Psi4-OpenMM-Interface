@@ -83,3 +83,10 @@ new_z_vals, new_xyz = po.get_atom_positions(simulation.topology, simulation)
 # Write the new geometry to an xyz file
 po.write_traj('phenol-water_opt_geo_mm.xyz', new_z_vals, new_xyz, comment="Optimized Geometry")
 
+# Calculate the B3LYP single point energy of this new geometry
+new_mol = molecule.Molecule(new_z_vals, new_xyz)
+# In between Psi4 calculations need to call clean to prevent issues
+psi4.core.clean()
+psi4.geometry(new_mol.to_xyz_string())
+# Uncomment energy call if you want to actually calculate the energy; perhaps change adding 50 waters above to 5 to do the DFT
+#psi4.energy('b3lyp-d3/sto-3g')

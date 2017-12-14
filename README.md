@@ -35,7 +35,7 @@ Using this package is very easy thanks to the capabilities provided by both Gith
 * ` conda install -c omnia openmm `
 
 4. Install additional dependencies:
-* Antechamber is used to calculate atom types automatically; if you have AmberTools installed, you should have Atechamber already and this step is unnecessary. If you need Antechamber:
+* Antechamber is used to calculate atom types automatically; if you have AmberTools installed, you should have Antechamber already and this step is unnecessary. If you need Antechamber:
 
     ` conda install -c omnia ambermini=16.16.0 `
 * OpenBabel is also used to help switch between file formats:

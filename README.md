@@ -45,6 +45,8 @@ Using this package is very easy thanks to the capabilities provided by both Gith
 
     `  conda install -c anaconda pandas `
 
+5. [Let me know](mailto:mzott3@gatech.edu) if you are using this interface or have any questions!
+
 Additional Resources
 ====================
 * **Psi4 website**  www.psicode.org
